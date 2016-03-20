@@ -91,7 +91,7 @@ perform the following additional steps after applying this code fix.
         {
             Guard.NotNull(context, nameof(context));
 
-            context.RegisterCompilationStartAction(StartAnalyzeCompilation);
+            //context.RegisterCompilationStartAction(StartAnalyzeCompilation);
         }
 
         private void StartAnalyzeCompilation([NotNull] CompilationStartAnalysisContext context)
