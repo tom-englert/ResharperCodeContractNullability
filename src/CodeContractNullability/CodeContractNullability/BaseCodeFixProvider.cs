@@ -40,6 +40,9 @@ namespace CodeContractNullability
         [NotNull]
         public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
         {
+            await Task.Yield();
+            
+            /*
             foreach (Diagnostic diagnostic in context.Diagnostics)
             {
                 NullabilityAttributeSymbols nullSymbols =
@@ -58,7 +61,7 @@ namespace CodeContractNullability
                 {
                     RegisterFixesForSyntaxNode(context, fieldSyntax ?? targetSyntax, diagnostic, nullSymbols);
                 }
-            }
+            }*/
         }
 
         [NotNull]

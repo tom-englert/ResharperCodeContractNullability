@@ -34,69 +34,106 @@ namespace CodeContractNullability
 
                 ConversionFixTarget fixTarget = ConversionFixTarget.Parse(diagnostic.Properties);
 
-                if (targetSyntax is MethodDeclarationSyntax)
+                var methodSyntax = targetSyntax as MethodDeclarationSyntax;
+                if (methodSyntax != null)
                 {
-                    RegisterFixesForSyntaxNode(context, targetSyntax, diagnostic, fixTarget);
+                    RegisterFixesForSyntaxNode(context, methodSyntax, methodSyntax.ReturnType, diagnostic, fixTarget);
+                    continue;
+                }
+
+                var indexerSyntax = targetSyntax as IndexerDeclarationSyntax;
+                if (indexerSyntax != null)
+                {
+                    RegisterFixesForSyntaxNode(context, indexerSyntax, indexerSyntax.Type, diagnostic, fixTarget);
+                    continue;
+                }
+
+                var propertySyntax = targetSyntax as PropertyDeclarationSyntax;
+                if (propertySyntax != null)
+                {
+                    RegisterFixesForSyntaxNode(context, propertySyntax, propertySyntax.Type, diagnostic, fixTarget);
+                    continue;
+                }
+
+                var parameterSyntax = targetSyntax as ParameterSyntax;
+                if (parameterSyntax != null)
+                {
+                    RegisterFixesForSyntaxNode(context, parameterSyntax, parameterSyntax.Type, diagnostic, fixTarget);
+                    continue;
+                }
+
+                FieldDeclarationSyntax fieldSyntax = targetSyntax is VariableDeclaratorSyntax
+                    ? targetSyntax.GetAncestorOrThis<FieldDeclarationSyntax>()
+                    : null;
+                if (fieldSyntax != null)
+                {
+                    RegisterFixesForSyntaxNode(context, fieldSyntax, fieldSyntax.Declaration.Type, diagnostic, fixTarget);
                 }
             }
         }
 
-        private void RegisterFixesForSyntaxNode(CodeFixContext context, [NotNull] SyntaxNode syntaxNode,
-            [NotNull] Diagnostic diagnostic, [NotNull] ConversionFixTarget fixTarget)
+        private void RegisterFixesForSyntaxNode(CodeFixContext context, [NotNull] SyntaxNode targetSyntax,
+            [NotNull] TypeSyntax typeSyntax, [NotNull] Diagnostic diagnostic, [NotNull] ConversionFixTarget fixTarget)
         {
-            if (fixTarget.FixAction == ConversionFixAction.RemoveAttribute)
-            {
-                context.RegisterCodeFix(
-                    CodeAction.Create("Remove " + fixTarget.AttributeName,
-                        token => RemoveAttributeFromDocument(context, syntaxNode, fixTarget)), diagnostic);
-            }
-            else if (fixTarget.FixAction == ConversionFixAction.ReplaceAttributeWithQuestionMark)
-            {
-                context.RegisterCodeFix(
-                    CodeAction.Create("title", token => ReplaceWithQuestionMark(context, syntaxNode, fixTarget)),
-                    diagnostic);
-            }
+            bool includeQuestionMark = fixTarget.FixAction == ConversionFixAction.ReplaceAttributeWithQuestionMark;
+            string title = includeQuestionMark
+                ? $"Replace {fixTarget.AttributeName} with nullable reference"
+                : $"Remove {fixTarget.AttributeName}";
+
+            CodeAction codeAction = CodeAction.Create(title,
+                token => ChangeDocumentAsync(targetSyntax, typeSyntax, context, fixTarget, includeQuestionMark));
+            context.RegisterCodeFix(codeAction, diagnostic);
         }
 
         [ItemNotNull]
-        private async Task<Document> ReplaceWithQuestionMark(CodeFixContext context, [NotNull] SyntaxNode syntaxNode,
-            [NotNull] ConversionFixTarget fixTarget)
+        private static async Task<Document> ChangeDocumentAsync([NotNull] SyntaxNode targetSyntax,
+            [NotNull] TypeSyntax typeSyntax, CodeFixContext context, [NotNull] ConversionFixTarget fixTarget,
+            bool includeQuestionMark)
         {
-            var methodSyntax = (MethodDeclarationSyntax) syntaxNode;
+            if (targetSyntax is FieldDeclarationSyntax)
+            {
+                targetSyntax = ((FieldDeclarationSyntax) targetSyntax).Declaration.Variables.First();
+            }
+            
+            SemanticModel model =
+                await context.Document.GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
+            ISymbol targetSymbol = model.GetDeclaredSymbol(targetSyntax);
 
-            Document document = context.Document; //await RemoveAttributeFromDocument(context, methodSyntax, fixTarget);
-            DocumentEditor editor =
-                await DocumentEditor.CreateAsync(document, CancellationToken.None).ConfigureAwait(false);
-
-            TypeSyntax returnSyntax = methodSyntax.ReturnType;
-
-            // TODO: How to add ? such as Task<string?>  -- next fails on Task<List<string>>>
-            TypeSyntax nullableTypeSyntax =
-                SyntaxFactory.ParseTypeName(!fixTarget.AppliesToItem
-                    ? returnSyntax + "?"
-                    : returnSyntax.ToString().Replace(">", "?>"))
-                    .WithAdditionalAnnotations(Simplifier.Annotation, Formatter.Annotation);
-
-            editor.ReplaceNode(returnSyntax, nullableTypeSyntax);
-
-            return editor.GetChangedDocument();
-        }
-
-        [ItemNotNull]
-        private static async Task<Document> RemoveAttributeFromDocument(CodeFixContext context,
-            [NotNull] SyntaxNode syntaxNode, [NotNull] ConversionFixTarget fixTarget)
-        {
-            SemanticModel model = await context.Document.GetSemanticModelAsync().ConfigureAwait(false);
-            ISymbol symbol = model.GetDeclaredSymbol(syntaxNode);
-
-            AttributeData attrSymbol =
-                symbol.GetAttributes().First(attr => attr.AttributeClass.Name == fixTarget.AttributeName);
-            SyntaxNode attrSyntax = await attrSymbol.ApplicationSyntaxReference.GetSyntaxAsync().ConfigureAwait(false);
+            AttributeData attributeData =
+                targetSymbol.GetAttributes().First(attr => attr.AttributeClass.Name == fixTarget.AttributeName);
+            SyntaxNode attributeSyntax =
+                await
+                    attributeData.ApplicationSyntaxReference.GetSyntaxAsync(context.CancellationToken)
+                        .ConfigureAwait(false);
 
             DocumentEditor editor =
                 await DocumentEditor.CreateAsync(context.Document, CancellationToken.None).ConfigureAwait(false);
-            editor.RemoveNode(attrSyntax);
+            editor.RemoveNode(attributeSyntax);
+
+            if (includeQuestionMark)
+            {
+                string newTypeName = AddQuestionMark(typeSyntax.ToString(), fixTarget.AppliesToItem);
+
+                TypeSyntax nullableTypeSyntax =
+                    SyntaxFactory.ParseTypeName(newTypeName)
+                        .WithAdditionalAnnotations(Simplifier.Annotation, Formatter.Annotation);
+
+                editor.ReplaceNode(typeSyntax, nullableTypeSyntax);
+            }
+
             return editor.GetChangedDocument();
+        }
+
+        [NotNull]
+        private static string AddQuestionMark([NotNull] string type, bool appliesToItem)
+        {
+            if (appliesToItem)
+            {
+                int closingAngleIndex = type.LastIndexOf('>');
+                return closingAngleIndex != -1 ? type.Substring(0, type.Length - 1) + "?>" : type;
+            }
+
+            return type + "?";
         }
     }
 }

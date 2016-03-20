@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
+using System.Text;
 using CodeContractNullability.NullabilityAttributes;
 using CodeContractNullability.SymbolAnalysis;
 using CodeContractNullability.Utilities;
@@ -17,17 +19,51 @@ namespace CodeContractNullability
         public const string DiagnosticId = "CNUL";
 
         [NotNull]
+        private readonly ImmutableDictionary<RuleKey, DiagnosticDescriptor> rules;
+
+        [ItemNotNull]
+        public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => rules.Values.ToImmutableArray();
+
+        [NotNull]
         public ExtensionPoint<INullabilityAttributeProvider> NullabilityAttributeProvider { get; } =
             new ExtensionPoint<INullabilityAttributeProvider>(() => new CachingNullabilityAttributeProvider());
+
+        public NullabilityConversionAnalyzer()
+        {
+            var ruleMap = new Dictionary<RuleKey, DiagnosticDescriptor>();
+
+            foreach (SymbolAnalysisKind kind in Enum.GetValues(typeof (SymbolAnalysisKind)))
+            {
+                foreach (string baseAttributeName in new[] { "CanBeNullAttribute", "NotNullAttribute" })
+                {
+                    foreach (bool appliesToItem in new[] { true, false })
+                    {
+                        string attributeName = appliesToItem ? "Item" + baseAttributeName : baseAttributeName;
+
+                        foreach (ConversionFixAction fixAction in Enum.GetValues(typeof (ConversionFixAction)))
+                        {
+                            var ruleKey = new RuleKey(kind, fixAction, baseAttributeName, appliesToItem);
+                            DiagnosticDescriptor descriptor = fixAction == ConversionFixAction.RemoveAttribute
+                                ? CreateRemoveRuleFor(kind.ToString().ToCamelCase(), attributeName)
+                                : CreateConvertReferenceTypeRuleFor(kind.ToString().ToCamelCase(), attributeName);
+
+                            ruleMap[ruleKey] = descriptor;
+                        }
+                    }
+                }
+            }
+
+            rules = ruleMap.ToImmutableDictionary();
+        }
 
         [NotNull]
         private DiagnosticDescriptor CreateRemoveRuleFor([NotNull] string memberTypeCamelCase,
             [NotNull] string attributeName)
         {
-            string title = $"{attributeName} attribute on {memberTypeCamelCase} can be removed.";
-            string messageFormat = $"{attributeName} attribute on {memberTypeCamelCase} '{{0}}' can be removed.";
+            string title = $"{attributeName} on {memberTypeCamelCase} can be removed.";
+            string messageFormat = $"{attributeName} on {memberTypeCamelCase} '{{0}}' can be removed.";
             string description =
-                $"This {memberTypeCamelCase} is annotated with {attributeName} attribute; with nullable reference types enabled, the annotation can be removed.";
+                $"This {memberTypeCamelCase} is annotated with {attributeName}; with nullable reference types enabled, the annotation can be removed.";
 
             return new DiagnosticDescriptor(DiagnosticId, title, messageFormat, "Nullability",
                 DiagnosticSeverity.Warning, true, description, "TODO: HELP URL");
@@ -38,50 +74,15 @@ namespace CodeContractNullability
             [NotNull] string attributeName)
         {
             string title =
-                $"{attributeName} attribute on {memberTypeCamelCase} can be converted to nullable reference type.";
+                $"{attributeName} on {memberTypeCamelCase} can be converted to nullable reference type.";
             string messageFormat =
-                $"{attributeName} attribute on {memberTypeCamelCase} '{{0}}' can be converted to nullable reference type.";
+                $"{attributeName} on {memberTypeCamelCase} '{{0}}' can be converted to nullable reference type.";
             string description =
-                $"This {memberTypeCamelCase} is annotated with {attributeName} attribute; with nullable reference types enabled, it can be converted to a nullable reference type.";
+                $"This {memberTypeCamelCase} is annotated with {attributeName}; with nullable reference types enabled, it can be converted to a nullable reference type.";
 
             return new DiagnosticDescriptor(DiagnosticId, title, messageFormat, "Nullability",
                 DiagnosticSeverity.Warning, true, description, "TODO: HELP URL");
         }
-
-        [NotNull]
-        private readonly DiagnosticDescriptor canBeNullOnMethodThatReturnsNullableValueType;
-
-        [NotNull]
-        private readonly DiagnosticDescriptor canBeNullOnMethodThatReturnsReferenceType;
-
-        [NotNull]
-        private readonly DiagnosticDescriptor notNullOnMethod;
-
-        [NotNull]
-        private readonly DiagnosticDescriptor itemCanBeNullOnMethodThatReturnsNullableValueType;
-
-        [NotNull]
-        private readonly DiagnosticDescriptor itemCanBeNullOnMethodThatReturnsReferenceType;
-
-        [NotNull]
-        private readonly DiagnosticDescriptor itemNotNullOnMethod;
-
-        public NullabilityConversionAnalyzer()
-        {
-            canBeNullOnMethodThatReturnsNullableValueType = CreateRemoveRuleFor("method", "CanBeNull");
-            canBeNullOnMethodThatReturnsReferenceType = CreateConvertReferenceTypeRuleFor("method", "CanBeNull");
-            notNullOnMethod = CreateRemoveRuleFor("method", "NotNull");
-
-            itemCanBeNullOnMethodThatReturnsNullableValueType = CreateRemoveRuleFor("method", "Item CanBeNull");
-            itemCanBeNullOnMethodThatReturnsReferenceType = CreateConvertReferenceTypeRuleFor("method", "ItemCanBeNull");
-            itemNotNullOnMethod = CreateRemoveRuleFor("method", "ItemNotNull");
-        }
-
-        [ItemNotNull]
-        public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics
-            =>
-                ImmutableArray.Create(canBeNullOnMethodThatReturnsNullableValueType,
-                    canBeNullOnMethodThatReturnsReferenceType);
 
         public override void Initialize([NotNull] AnalysisContext context)
         {
@@ -116,35 +117,60 @@ namespace CodeContractNullability
 
         private void AnalyzeField(SymbolAnalysisContext context)
         {
-            // TODO
+            // TODO: Pickup the correct underlying field for AppliesToItem: List<int?> => int?
+
+            var field = (IFieldSymbol) context.Symbol;
+            AnalyzeSymbol(field, field.Type, context, SymbolAnalysisKind.Field);
         }
 
         private void AnalyzeProperty(SymbolAnalysisContext context)
         {
-            // TODO
+            var property = (IPropertySymbol) context.Symbol;
+            AnalyzeSymbol(property, property.Type, context, SymbolAnalysisKind.Property);
         }
 
         private void AnalyzeMethod(SymbolAnalysisContext context)
         {
             var method = (IMethodSymbol) context.Symbol;
-
-            ReportForAttribute(context, method, method.ReturnType, "CanBeNullAttribute", false, true,
-                canBeNullOnMethodThatReturnsNullableValueType, canBeNullOnMethodThatReturnsReferenceType);
-            ReportForAttribute(context, method, method.ReturnType, "NotNullAttribute", false, false, notNullOnMethod,
-                null);
-
-            ReportForAttribute(context, method, method.ReturnType, "ItemCanBeNullAttribute", true, true,
-                itemCanBeNullOnMethodThatReturnsNullableValueType, itemCanBeNullOnMethodThatReturnsReferenceType);
-            ReportForAttribute(context, method, method.ReturnType, "ItemNotNullAttribute", true, false,
-                itemNotNullOnMethod, null);
+            AnalyzeSymbol(method, method.ReturnType, context, SymbolAnalysisKind.Method);
         }
 
-        private void ReportForAttribute(SymbolAnalysisContext context, [NotNull] ISymbol symbol,
-            [NotNull] ITypeSymbol symbolType, [NotNull] string attributeName, bool appliesToItem, bool forCanBeNull,
+        private void AnalyzeParameter(SymbolAnalysisContext context)
+        {
+            var parameter = (IParameterSymbol) context.Symbol;
+            AnalyzeSymbol(parameter, parameter.Type, context, SymbolAnalysisKind.Parameter);
+        }
+
+        private void AnalyzeSymbol([NotNull] ISymbol targetSymbol, [NotNull] ITypeSymbol symbolType,
+            SymbolAnalysisContext context, SymbolAnalysisKind kind)
+        {
+            foreach (string baseAttributeName in new[] { "CanBeNullAttribute", "NotNullAttribute" })
+            {
+                foreach (bool appliesToItem in new[] { true, false })
+                {
+                    string attributeName = appliesToItem ? "Item" + baseAttributeName : baseAttributeName;
+
+                    var removeRuleKey = new RuleKey(kind, ConversionFixAction.RemoveAttribute, baseAttributeName,
+                        appliesToItem);
+                    DiagnosticDescriptor removeDescriptor = rules[removeRuleKey];
+
+                    var replaceRuleKey = new RuleKey(kind, ConversionFixAction.ReplaceAttributeWithQuestionMark,
+                        baseAttributeName, appliesToItem);
+                    DiagnosticDescriptor replaceDescriptor = rules[replaceRuleKey];
+
+                    bool forCanBeNull = baseAttributeName == "CanBeNullAttribute";
+                    ReportForAttribute(attributeName, context, targetSymbol, symbolType, appliesToItem, forCanBeNull,
+                        removeDescriptor, replaceDescriptor);
+                }
+            }
+        }
+
+        private void ReportForAttribute([NotNull] string attributeName, SymbolAnalysisContext context,
+            [NotNull] ISymbol targetSymbol, [NotNull] ITypeSymbol symbolType, bool appliesToItem, bool forCanBeNull,
             [NotNull] DiagnosticDescriptor removeRule, [CanBeNull] DiagnosticDescriptor replaceRule)
         {
             AttributeData attribute =
-                symbol.GetAttributes().FirstOrDefault(attr => attr.AttributeClass.Name == attributeName);
+                targetSymbol.GetAttributes().FirstOrDefault(attr => attr.AttributeClass.Name == attributeName);
             if (attribute != null)
             {
                 ImmutableDictionary<string, string> fixTargetRemove =
@@ -178,11 +204,6 @@ namespace CodeContractNullability
             }
         }
 
-        private void AnalyzeParameter(SymbolAnalysisContext context)
-        {
-            // TODO
-        }
-
         private static SymbolAnalysisContext SyntaxToSymbolContext(SyntaxNodeAnalysisContext syntaxContext)
         {
             ISymbol symbol = syntaxContext.SemanticModel.GetDeclaredSymbol(syntaxContext.Node);
@@ -197,6 +218,63 @@ namespace CodeContractNullability
             return new SymbolAnalysisContext(symbol, context.SemanticModel.Compilation, context.Options,
                 context.ReportDiagnostic, x => true, context.CancellationToken);
         }
+
+        private struct RuleKey : IEquatable<RuleKey>
+        {
+            public SymbolAnalysisKind Kind { get; }
+            public ConversionFixAction FixAction { get; }
+
+            [NotNull]
+            public string BaseAttributeName { get; }
+
+            public bool AppliesToItem { get; }
+
+            public RuleKey(SymbolAnalysisKind kind, ConversionFixAction fixAction, [NotNull] string baseAttributeName,
+                bool appliesToItem)
+            {
+                Guard.NotNull(baseAttributeName, nameof(baseAttributeName));
+
+                Kind = kind;
+                FixAction = fixAction;
+                BaseAttributeName = baseAttributeName;
+                AppliesToItem = appliesToItem;
+            }
+
+            public bool Equals(RuleKey other)
+            {
+                return other.Kind == Kind && other.FixAction == FixAction &&
+                    other.BaseAttributeName == BaseAttributeName && other.AppliesToItem == AppliesToItem;
+            }
+
+            public override bool Equals([CanBeNull] object obj)
+            {
+                return obj is RuleKey && Equals((RuleKey) obj);
+            }
+
+            public override int GetHashCode()
+            {
+                return Kind.GetHashCode() ^ FixAction.GetHashCode() ^ BaseAttributeName.GetHashCode() ^
+                    AppliesToItem.GetHashCode();
+            }
+
+            public override string ToString()
+            {
+                var textBuilder = new StringBuilder();
+                textBuilder.Append(FixAction == ConversionFixAction.RemoveAttribute ? "Remove " : "Replace ");
+                textBuilder.Append(AppliesToItem ? "Item" + BaseAttributeName : BaseAttributeName);
+                textBuilder.Append(" from ");
+                textBuilder.Append(Kind.ToString().ToCamelCase());
+                return textBuilder.ToString();
+            }
+        }
+
+        private enum SymbolAnalysisKind
+        {
+            Field,
+            Property,
+            Method,
+            Parameter
+        }
     }
 
     public sealed class ConversionFixTarget
@@ -210,6 +288,8 @@ namespace CodeContractNullability
 
         public ConversionFixTarget(ConversionFixAction fixAction, [NotNull] string attributeName, bool appliesToItem)
         {
+            Guard.NotNull(attributeName, nameof(attributeName));
+
             FixAction = fixAction;
             AttributeName = attributeName;
             AppliesToItem = appliesToItem;

@@ -52,6 +52,7 @@
     <Compile Include="NullabilityConversionAnalyzer.cs" />
     <Compile Include="NullabilityConversionFixProvider.cs" />
     <Compile Include="SettingsProvider.cs" />
+    <Compile Include="StringExtensions.cs" />
     <Compile Include="SymbolAnalysis\FieldAnalyzer.cs" />
     <Compile Include="SymbolAnalysis\BaseSymbolAnalyzer.cs" />
     <Compile Include="SymbolAnalysis\MethodReturnValueAnalyzer.cs" />
