@@ -93,6 +93,10 @@ namespace CodeContractNullability
             // - [NotNull] on nullable value type =>    actions: remove attribute
             // - [NotNull] on reference type =>         actions: remove attribute
 
+            // TODO: Something to think about: when replacing attribute in interface/base, that breaks derived class (because they no longer inherit the annotation)
+            
+            // TODO: Applying replace action on Unconstrained generics (without "where T : class" or "where T : struct") causes broken build. Is this a Roslyn bug?
+
             context.RegisterCompilationStartAction(StartAnalyzeCompilation);
         }
 

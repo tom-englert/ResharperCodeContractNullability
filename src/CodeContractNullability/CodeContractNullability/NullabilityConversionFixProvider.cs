@@ -24,6 +24,12 @@ namespace CodeContractNullability
             => ImmutableArray.Create(NullabilityConversionAnalyzer.DiagnosticId);
 
         [NotNull]
+        public override sealed FixAllProvider GetFixAllProvider()
+        {
+            return WellKnownFixAllProviders.BatchFixer;
+        }
+
+        [NotNull]
         public override async Task RegisterCodeFixesAsync(CodeFixContext context)
         {
             foreach (Diagnostic diagnostic in context.Diagnostics)
@@ -81,7 +87,7 @@ namespace CodeContractNullability
                 : $"Remove {fixTarget.AttributeName}";
 
             CodeAction codeAction = CodeAction.Create(title,
-                token => ChangeDocumentAsync(targetSyntax, typeSyntax, context, fixTarget, includeQuestionMark));
+                token => ChangeDocumentAsync(targetSyntax, typeSyntax, context, fixTarget, includeQuestionMark), title);
             context.RegisterCodeFix(codeAction, diagnostic);
         }
 
