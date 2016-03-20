@@ -22,7 +22,7 @@
     <IncludeDebugSymbolsInLocalVSIXDeployment>false</IncludeDebugSymbolsInLocalVSIXDeployment>
     <CopyBuildOutputToOutputDirectory>false</CopyBuildOutputToOutputDirectory>
     <CopyOutputSymbolsToOutputDirectory>false</CopyOutputSymbolsToOutputDirectory>
-    <VSSDKTargetPlatformRegRootSuffix>Roslyn</VSSDKTargetPlatformRegRootSuffix>
+    <VSSDKTargetPlatformRegRootSuffix>RoslynDev</VSSDKTargetPlatformRegRootSuffix>
   </PropertyGroup>
   <PropertyGroup Condition="'$(BuildingInsideVisualStudio)' != 'true'">
     <!-- This property disables extension deployment for command line builds; required for AppVeyor -->
@@ -50,7 +50,7 @@
   <PropertyGroup>
     <StartAction>Program</StartAction>
     <StartProgram>$(DevEnvDir)devenv.exe</StartProgram>
-    <StartArguments>/rootsuffix Roslyn</StartArguments>
+    <StartArguments>/rootsuffix RoslynDev</StartArguments>
   </PropertyGroup>
   <ItemGroup>
     <None Include="source.extension.vsixmanifest">

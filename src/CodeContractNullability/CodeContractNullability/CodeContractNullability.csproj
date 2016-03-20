@@ -49,6 +49,8 @@
     <Compile Include="ExternalAnnotations\MissingExternalAnnotationsException.cs" />
     <Compile Include="ExternalAnnotations\MsgPackSerializationService.cs" />
     <Compile Include="ExternalAnnotations\SimpleExternalAnnotationsResolver.cs" />
+    <Compile Include="NullabilityConversionAnalyzer.cs" />
+    <Compile Include="NullabilityConversionFixProvider.cs" />
     <Compile Include="SettingsProvider.cs" />
     <Compile Include="SymbolAnalysis\FieldAnalyzer.cs" />
     <Compile Include="SymbolAnalysis\BaseSymbolAnalyzer.cs" />
