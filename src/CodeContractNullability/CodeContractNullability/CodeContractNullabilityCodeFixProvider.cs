@@ -14,7 +14,7 @@ namespace CodeContractNullability
     public class CodeContractNullabilityCodeFixProvider : BaseCodeFixProvider
     {
         [ItemNotNull]
-        public sealed override ImmutableArray<string> FixableDiagnosticIds
+        public override sealed ImmutableArray<string> FixableDiagnosticIds
             => ImmutableArray.Create(CodeContractNullabilityAnalyzer.DiagnosticId);
 
         public CodeContractNullabilityCodeFixProvider()

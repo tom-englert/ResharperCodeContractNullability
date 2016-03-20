@@ -6,7 +6,6 @@ using JetBrains.Annotations;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeFixes;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Editing;
 using Microsoft.CodeAnalysis.Formatting;
 using Microsoft.CodeAnalysis.Options;
@@ -30,7 +29,7 @@ namespace CodeContractNullability
         }
 
         [NotNull]
-        public sealed override FixAllProvider GetFixAllProvider()
+        public override sealed FixAllProvider GetFixAllProvider()
         {
             // Note: this may annotate too much. For instance, when an interface is annotated, its implementation should not.
             // But because at the time of analysis, both are not annotated, a diagnostic is created for both.
@@ -38,10 +37,10 @@ namespace CodeContractNullability
         }
 
         [NotNull]
-        public sealed override async Task RegisterCodeFixesAsync(CodeFixContext context)
+        public override sealed async Task RegisterCodeFixesAsync(CodeFixContext context)
         {
             await Task.Yield();
-            
+
             /*
             foreach (Diagnostic diagnostic in context.Diagnostics)
             {

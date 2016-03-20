@@ -73,8 +73,7 @@ namespace CodeContractNullability
         private DiagnosticDescriptor CreateConvertReferenceTypeRuleFor([NotNull] string memberTypeCamelCase,
             [NotNull] string attributeName)
         {
-            string title =
-                $"{attributeName} on {memberTypeCamelCase} can be converted to nullable reference type.";
+            string title = $"{attributeName} on {memberTypeCamelCase} can be converted to nullable reference type.";
             string messageFormat =
                 $"{attributeName} on {memberTypeCamelCase} '{{0}}' can be converted to nullable reference type.";
             string description =
@@ -109,40 +108,41 @@ namespace CodeContractNullability
                 return;
             }
 
-            context.RegisterSymbolAction(AnalyzeField, SymbolKind.Field);
-            context.RegisterSymbolAction(AnalyzeProperty, SymbolKind.Property);
-            context.RegisterSymbolAction(AnalyzeMethod, SymbolKind.Method);
-            context.RegisterSyntaxNodeAction(c => AnalyzeParameter(SyntaxToSymbolContext(c)), SyntaxKind.Parameter);
+            var typeCache = new FrameworkTypeCache(context.Compilation);
+
+            context.RegisterSymbolAction(c => AnalyzeField(c, typeCache), SymbolKind.Field);
+            context.RegisterSymbolAction(c => AnalyzeProperty(c, typeCache), SymbolKind.Property);
+            context.RegisterSymbolAction(c => AnalyzeMethod(c, typeCache), SymbolKind.Method);
+            context.RegisterSyntaxNodeAction(c => AnalyzeParameter(SyntaxToSymbolContext(c), typeCache),
+                SyntaxKind.Parameter);
         }
 
-        private void AnalyzeField(SymbolAnalysisContext context)
+        private void AnalyzeField(SymbolAnalysisContext context, [NotNull] FrameworkTypeCache typeCache)
         {
-            // TODO: Pickup the correct underlying field for AppliesToItem: List<int?> => int?
-
             var field = (IFieldSymbol) context.Symbol;
-            AnalyzeSymbol(field, field.Type, context, SymbolAnalysisKind.Field);
+            AnalyzeSymbol(field, field.Type, context, SymbolAnalysisKind.Field, typeCache);
         }
 
-        private void AnalyzeProperty(SymbolAnalysisContext context)
+        private void AnalyzeProperty(SymbolAnalysisContext context, [NotNull] FrameworkTypeCache typeCache)
         {
             var property = (IPropertySymbol) context.Symbol;
-            AnalyzeSymbol(property, property.Type, context, SymbolAnalysisKind.Property);
+            AnalyzeSymbol(property, property.Type, context, SymbolAnalysisKind.Property, typeCache);
         }
 
-        private void AnalyzeMethod(SymbolAnalysisContext context)
+        private void AnalyzeMethod(SymbolAnalysisContext context, [NotNull] FrameworkTypeCache typeCache)
         {
             var method = (IMethodSymbol) context.Symbol;
-            AnalyzeSymbol(method, method.ReturnType, context, SymbolAnalysisKind.Method);
+            AnalyzeSymbol(method, method.ReturnType, context, SymbolAnalysisKind.Method, typeCache);
         }
 
-        private void AnalyzeParameter(SymbolAnalysisContext context)
+        private void AnalyzeParameter(SymbolAnalysisContext context, [NotNull] FrameworkTypeCache typeCache)
         {
             var parameter = (IParameterSymbol) context.Symbol;
-            AnalyzeSymbol(parameter, parameter.Type, context, SymbolAnalysisKind.Parameter);
+            AnalyzeSymbol(parameter, parameter.Type, context, SymbolAnalysisKind.Parameter, typeCache);
         }
 
         private void AnalyzeSymbol([NotNull] ISymbol targetSymbol, [NotNull] ITypeSymbol symbolType,
-            SymbolAnalysisContext context, SymbolAnalysisKind kind)
+            SymbolAnalysisContext context, SymbolAnalysisKind kind, [NotNull] FrameworkTypeCache typeCache)
         {
             foreach (string baseAttributeName in new[] { "CanBeNullAttribute", "NotNullAttribute" })
             {
@@ -158,9 +158,23 @@ namespace CodeContractNullability
                         baseAttributeName, appliesToItem);
                     DiagnosticDescriptor replaceDescriptor = rules[replaceRuleKey];
 
-                    bool forCanBeNull = baseAttributeName == "CanBeNullAttribute";
-                    ReportForAttribute(attributeName, context, targetSymbol, symbolType, appliesToItem, forCanBeNull,
-                        removeDescriptor, replaceDescriptor);
+                    ITypeSymbol currentSymbolType;
+                    if (appliesToItem)
+                    {
+                        currentSymbolType = symbolType.TryGetItemTypeForSequenceOrCollection(typeCache) ??
+                            symbolType.TryGetItemTypeForLazyOrGenericTask(typeCache);
+                    }
+                    else
+                    {
+                        currentSymbolType = symbolType;
+                    }
+
+                    if (currentSymbolType != null)
+                    {
+                        bool forCanBeNull = baseAttributeName == "CanBeNullAttribute";
+                        ReportForAttribute(attributeName, context, targetSymbol, currentSymbolType, appliesToItem,
+                            forCanBeNull, removeDescriptor, replaceDescriptor);
+                    }
                 }
             }
         }

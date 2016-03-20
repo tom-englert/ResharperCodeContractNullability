@@ -94,7 +94,7 @@ namespace CodeContractNullability
             {
                 targetSyntax = ((FieldDeclarationSyntax) targetSyntax).Declaration.Variables.First();
             }
-            
+
             SemanticModel model =
                 await context.Document.GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
             ISymbol targetSymbol = model.GetDeclaredSymbol(targetSyntax);
@@ -108,6 +108,8 @@ namespace CodeContractNullability
 
             DocumentEditor editor =
                 await DocumentEditor.CreateAsync(context.Document, CancellationToken.None).ConfigureAwait(false);
+
+            // TODO: Preserve leading whitespace and comments!
             editor.RemoveNode(attributeSyntax);
 
             if (includeQuestionMark)
@@ -130,7 +132,15 @@ namespace CodeContractNullability
             if (appliesToItem)
             {
                 int closingAngleIndex = type.LastIndexOf('>');
-                return closingAngleIndex != -1 ? type.Substring(0, type.Length - 1) + "?>" : type;
+                if (closingAngleIndex != -1)
+                {
+                    string leftPart = type.Substring(0, closingAngleIndex);
+                    string rightPart = type.Substring(closingAngleIndex);
+
+                    return leftPart + "?" + rightPart;
+                }
+
+                return type;
             }
 
             return type + "?";
