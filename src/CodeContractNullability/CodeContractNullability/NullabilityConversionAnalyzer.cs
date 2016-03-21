@@ -94,8 +94,13 @@ namespace CodeContractNullability
             // - [NotNull] on reference type =>         actions: remove attribute
 
             // TODO: Something to think about: when replacing attribute in interface/base, that breaks derived class (because they no longer inherit the annotation)
-            
+
             // TODO: Applying replace action on Unconstrained generics (without "where T : class" or "where T : struct") causes broken build. Is this a Roslyn bug?
+            // Track: https://github.com/dotnet/roslyn/issues/9932
+            // For the moment, should implement to skip offering Replace rule when it concerns an unconstrained T (to enable project/solution wide fixer).
+
+            // TODO: Why do fixes appear twice in DogAgilityCompetitionManagement project?
+
 
             context.RegisterCompilationStartAction(StartAnalyzeCompilation);
         }
