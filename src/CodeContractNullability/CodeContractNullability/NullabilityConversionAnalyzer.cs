@@ -213,9 +213,18 @@ namespace CodeContractNullability
                 {
                     if (forCanBeNull)
                     {
-                        Diagnostic diagnostic = Diagnostic.Create(replaceRule, context.Symbol.Locations[0],
-                            fixTargetReplace, context.Symbol.Name);
-                        context.ReportDiagnostic(diagnostic);
+                        if (IsFirstParameterOfTypeObjectNamedSender(targetSymbol, symbolType))
+                        {
+                            Diagnostic diagnostic = Diagnostic.Create(removeRule, context.Symbol.Locations[0],
+                                fixTargetRemove, context.Symbol.Name);
+                            context.ReportDiagnostic(diagnostic);
+                        }
+                        else
+                        {
+                            Diagnostic diagnostic = Diagnostic.Create(replaceRule, context.Symbol.Locations[0],
+                                fixTargetReplace, context.Symbol.Name);
+                            context.ReportDiagnostic(diagnostic);
+                        }
                     }
                     else
                     {
@@ -225,6 +234,30 @@ namespace CodeContractNullability
                     }
                 }
             }
+        }
+
+        private bool IsFirstParameterOfTypeObjectNamedSender([NotNull] ISymbol targetSymbol, [NotNull] ITypeSymbol symbolType)
+        {
+            // Special case: First parameter that is 'object sender' should stay 'object' not 'object?'
+            // Because its likely a event handler that we'll break otherwise. Example:
+            /*
+                public event EventHandler E = delegate { };
+
+                void M() { E += Handler; }
+
+                private void Handler([CanBeNull] object sender, EventArgs e) { throw new NotImplementedException(); }
+            */
+
+            var parameter = targetSymbol as IParameterSymbol;
+            if (parameter != null)
+            {
+                if (parameter.Name == "sender" && symbolType.SpecialType == SpecialType.System_Object)
+                {
+                    var method = (IMethodSymbol)parameter.ContainingSymbol;
+                    return method.Parameters.IndexOf(parameter) == 0;
+                }
+            }
+            return false;
         }
 
         private static SymbolAnalysisContext SyntaxToSymbolContext(SyntaxNodeAnalysisContext syntaxContext)
