@@ -105,30 +105,47 @@ namespace CodeContractNullability
                 await context.Document.GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
             ISymbol targetSymbol = model.GetDeclaredSymbol(targetSyntax);
 
+            DocumentEditor editor =
+                await DocumentEditor.CreateAsync(context.Document, context.CancellationToken).ConfigureAwait(false);
+            
+
             AttributeData attributeData =
                 targetSymbol.GetAttributes().First(attr => attr.AttributeClass.Name == fixTarget.AttributeName);
             SyntaxNode attributeSyntax =
                 await
                     attributeData.ApplicationSyntaxReference.GetSyntaxAsync(context.CancellationToken)
                         .ConfigureAwait(false);
+            var attrListSyntax = (AttributeListSyntax)attributeSyntax.Parent;
 
-            DocumentEditor editor =
-                await DocumentEditor.CreateAsync(context.Document, CancellationToken.None).ConfigureAwait(false);
-
-            // TODO: Preserve leading whitespace and comments!
-            editor.RemoveNode(attributeSyntax);
+            // Register to find back node after changed tree
+            editor.TrackNode(attrListSyntax);
+            AttributeListSyntax attrListSyntax2 = attrListSyntax;
 
             if (includeQuestionMark)
             {
                 string newTypeName = AddQuestionMark(typeSyntax.ToString(), fixTarget.AppliesToItem);
 
                 TypeSyntax nullableTypeSyntax =
-                    SyntaxFactory.ParseTypeName(newTypeName)
-                        .WithAdditionalAnnotations(Simplifier.Annotation, Formatter.Annotation);
+                    SyntaxFactory.ParseTypeName(newTypeName).WithAdditionalAnnotations(Formatter.Annotation);
 
                 editor.ReplaceNode(typeSyntax, nullableTypeSyntax);
+
+                // Refind attrSyntax after changed tree
+                var newDoc = editor.GetChangedDocument();
+                var newRoot = await newDoc.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
+                attrListSyntax2 = newRoot.GetCurrentNode(attrListSyntax);
+
+                // TODO: Find a way without recreating the document twice
+                editor = await DocumentEditor.CreateAsync(newDoc, context.CancellationToken).ConfigureAwait(false);
             }
 
+            // Remove attribute (preserve trivia)
+            var parent = attrListSyntax2.Parent;
+            var parentAnnotated = parent
+                .RemoveNode(attrListSyntax2, SyntaxRemoveOptions.KeepExteriorTrivia)
+                .WithAdditionalAnnotations(Formatter.Annotation);
+
+            editor.ReplaceNode(parent, parentAnnotated);
             return editor.GetChangedDocument();
         }
 
