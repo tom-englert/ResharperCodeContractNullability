@@ -203,6 +203,12 @@ namespace CodeContractNullability
                     new ConversionFixTarget(ConversionFixAction.ReplaceAttributeWithQuestionMark, attributeName,
                         appliesToItem).ToProperties();
 
+                if (forCanBeNull && symbolType.TypeKind == TypeKind.TypeParameter)
+                {
+                    // Skip rewriting of generic signatures for now, as they break the build.
+                    return;
+                }
+
                 if (symbolType.IsSystemNullableType())
                 {
                     Diagnostic diagnostic = Diagnostic.Create(removeRule, context.Symbol.Locations[0], fixTargetRemove,
