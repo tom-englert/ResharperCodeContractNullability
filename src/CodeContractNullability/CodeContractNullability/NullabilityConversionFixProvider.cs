@@ -1,8 +1,10 @@
-﻿using System.Collections.Immutable;
+﻿using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Composition;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using CodeContractNullability.Utilities;
 using JetBrains.Annotations;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
@@ -11,7 +13,6 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Editing;
 using Microsoft.CodeAnalysis.Formatting;
-using Microsoft.CodeAnalysis.Simplification;
 
 namespace CodeContractNullability
 {
@@ -34,52 +35,89 @@ namespace CodeContractNullability
         {
             foreach (Diagnostic diagnostic in context.Diagnostics)
             {
+                CancellationToken cancellationToken = context.CancellationToken;
+                ConversionFixTarget fixTarget = ConversionFixTarget.Parse(diagnostic.Properties);
+
                 SyntaxNode syntaxRoot =
-                    await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
+                    await context.Document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
                 SyntaxNode targetSyntax = syntaxRoot.FindNode(context.Span);
 
-                ConversionFixTarget fixTarget = ConversionFixTarget.Parse(diagnostic.Properties);
+                targetSyntax = TranslateField(targetSyntax);
+
+                EditContext editContext =
+                    await EditContext.CreateAsync(context.Document, cancellationToken).ConfigureAwait(false);
+
+                var syntaxAnnotation = new SyntaxAnnotation("targetSyntax");
+                targetSyntax =
+                    await editContext.AnnotateSyntaxAsync(targetSyntax, syntaxAnnotation).ConfigureAwait(false);
+
+                var typeAnnotation = new SyntaxAnnotation("typeSyntax");
 
                 var methodSyntax = targetSyntax as MethodDeclarationSyntax;
                 if (methodSyntax != null)
                 {
-                    RegisterFixesForSyntaxNode(context, methodSyntax, methodSyntax.ReturnType, diagnostic, fixTarget);
+                    await editContext.AnnotateSyntaxAsync(methodSyntax.ReturnType, typeAnnotation).ConfigureAwait(false);
+
+                    RegisterFixesForSyntaxNode(syntaxAnnotation, typeAnnotation, diagnostic, context, editContext,
+                        fixTarget);
                     continue;
                 }
 
                 var indexerSyntax = targetSyntax as IndexerDeclarationSyntax;
                 if (indexerSyntax != null)
                 {
-                    RegisterFixesForSyntaxNode(context, indexerSyntax, indexerSyntax.Type, diagnostic, fixTarget);
+                    await editContext.AnnotateSyntaxAsync(indexerSyntax.Type, typeAnnotation).ConfigureAwait(false);
+
+                    RegisterFixesForSyntaxNode(syntaxAnnotation, typeAnnotation, diagnostic, context, editContext,
+                        fixTarget);
                     continue;
                 }
 
                 var propertySyntax = targetSyntax as PropertyDeclarationSyntax;
                 if (propertySyntax != null)
                 {
-                    RegisterFixesForSyntaxNode(context, propertySyntax, propertySyntax.Type, diagnostic, fixTarget);
+                    await editContext.AnnotateSyntaxAsync(propertySyntax.Type, typeAnnotation).ConfigureAwait(false);
+
+                    RegisterFixesForSyntaxNode(syntaxAnnotation, typeAnnotation, diagnostic, context, editContext,
+                        fixTarget);
                     continue;
                 }
 
                 var parameterSyntax = targetSyntax as ParameterSyntax;
                 if (parameterSyntax != null)
                 {
-                    RegisterFixesForSyntaxNode(context, parameterSyntax, parameterSyntax.Type, diagnostic, fixTarget);
+                    await editContext.AnnotateSyntaxAsync(parameterSyntax.Type, typeAnnotation).ConfigureAwait(false);
+
+                    RegisterFixesForSyntaxNode(syntaxAnnotation, typeAnnotation, diagnostic, context, editContext,
+                        fixTarget);
                     continue;
                 }
 
-                FieldDeclarationSyntax fieldSyntax = targetSyntax is VariableDeclaratorSyntax
-                    ? targetSyntax.GetAncestorOrThis<FieldDeclarationSyntax>()
-                    : null;
+                var fieldSyntax = targetSyntax as FieldDeclarationSyntax;
                 if (fieldSyntax != null)
                 {
-                    RegisterFixesForSyntaxNode(context, fieldSyntax, fieldSyntax.Declaration.Type, diagnostic, fixTarget);
+                    await
+                        editContext.AnnotateSyntaxAsync(fieldSyntax.Declaration.Type, typeAnnotation)
+                            .ConfigureAwait(false);
+
+                    RegisterFixesForSyntaxNode(syntaxAnnotation, typeAnnotation, diagnostic, context, editContext,
+                        fixTarget);
                 }
             }
         }
 
-        private void RegisterFixesForSyntaxNode(CodeFixContext context, [NotNull] SyntaxNode targetSyntax,
-            [NotNull] TypeSyntax typeSyntax, [NotNull] Diagnostic diagnostic, [NotNull] ConversionFixTarget fixTarget)
+        [NotNull]
+        private static SyntaxNode TranslateField([NotNull] SyntaxNode syntax)
+        {
+            var fieldVariableSyntax = syntax as VariableDeclaratorSyntax;
+            return fieldVariableSyntax != null
+                ? fieldVariableSyntax.GetAncestorOrThis<FieldDeclarationSyntax>()
+                : syntax;
+        }
+
+        private void RegisterFixesForSyntaxNode([NotNull] SyntaxAnnotation syntaxAnnotation,
+            [NotNull] SyntaxAnnotation typeAnnotation, [NotNull] Diagnostic diagnostic, CodeFixContext context,
+            [NotNull] EditContext editContext, [NotNull] ConversionFixTarget fixTarget)
         {
             bool includeQuestionMark = fixTarget.FixAction == ConversionFixAction.ReplaceAttributeWithQuestionMark;
             string title = includeQuestionMark
@@ -87,86 +125,284 @@ namespace CodeContractNullability
                 : $"Remove {fixTarget.AttributeName}";
 
             CodeAction codeAction = CodeAction.Create(title,
-                token => ChangeDocumentAsync(targetSyntax, typeSyntax, context, fixTarget, includeQuestionMark), title);
+                token =>
+                    ChangeDocumentAsync(syntaxAnnotation, typeAnnotation, editContext,
+                        fixTarget, includeQuestionMark), title);
+
             context.RegisterCodeFix(codeAction, diagnostic);
         }
 
-        [ItemNotNull]
-        private static async Task<Document> ChangeDocumentAsync([NotNull] SyntaxNode targetSyntax,
-            [NotNull] TypeSyntax typeSyntax, CodeFixContext context, [NotNull] ConversionFixTarget fixTarget,
-            bool includeQuestionMark)
+        [ItemCanBeNull]
+        private static async Task<Document> ChangeDocumentAsync([NotNull] SyntaxAnnotation syntaxAnnotation,
+            [NotNull] SyntaxAnnotation typeAnnotation, [NotNull] EditContext editContext,
+            [NotNull] ConversionFixTarget fixTarget, bool includeQuestionMark)
         {
-            if (targetSyntax is FieldDeclarationSyntax)
+            SyntaxNode targetSyntax = await editContext.GetAnnotatedSyntaxAsync(syntaxAnnotation).ConfigureAwait(false);
+
+            ISymbol targetSymbol = await SyntaxToSymbol(editContext, targetSyntax).ConfigureAwait(false);
+
+            AttributeSyntax attributeSyntax =
+                await
+                    GetAttributeSyntaxOrNullAsync(targetSymbol, fixTarget.AttributeName, editContext.CancellationToken)
+                        .ConfigureAwait(false);
+
+            if (attributeSyntax == null)
             {
-                targetSyntax = ((FieldDeclarationSyntax) targetSyntax).Declaration.Variables.First();
+                // Attribute no longer found; do nothing.
+                return editContext.Document;
             }
 
-            SemanticModel model =
-                await context.Document.GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
-            ISymbol targetSymbol = model.GetDeclaredSymbol(targetSyntax);
-
-            DocumentEditor editor =
-                await DocumentEditor.CreateAsync(context.Document, context.CancellationToken).ConfigureAwait(false);
-            
-
-            AttributeData attributeData =
-                targetSymbol.GetAttributes().First(attr => attr.AttributeClass.Name == fixTarget.AttributeName);
-            SyntaxNode attributeSyntax =
-                await
-                    attributeData.ApplicationSyntaxReference.GetSyntaxAsync(context.CancellationToken)
-                        .ConfigureAwait(false);
-            var attrListSyntax = (AttributeListSyntax)attributeSyntax.Parent;
-
-            // Register to find back node after changed tree
-            editor.TrackNode(attrListSyntax);
-            AttributeListSyntax attrListSyntax2 = attrListSyntax;
+            // Remove attribute (preserves trivia, but removes empty blank line)
+            await RemoveAttributeFromListAsync(attributeSyntax, editContext).ConfigureAwait(false);
 
             if (includeQuestionMark)
             {
-                string newTypeName = AddQuestionMark(typeSyntax.ToString(), fixTarget.AppliesToItem);
+                var typeSyntax =
+                    (TypeSyntax) await editContext.GetAnnotatedSyntaxAsync(typeAnnotation).ConfigureAwait(false);
+
+                string nullableTypeName = AddQuestionMarkToTypeName(typeSyntax.ToString(), fixTarget.AppliesToItem);
 
                 TypeSyntax nullableTypeSyntax =
-                    SyntaxFactory.ParseTypeName(newTypeName).WithAdditionalAnnotations(Formatter.Annotation);
+                    SyntaxFactory.ParseTypeName(nullableTypeName).WithAdditionalAnnotations(Formatter.Annotation);
 
-                editor.ReplaceNode(typeSyntax, nullableTypeSyntax);
-
-                // Refind attrSyntax after changed tree
-                var newDoc = editor.GetChangedDocument();
-                var newRoot = await newDoc.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
-                attrListSyntax2 = newRoot.GetCurrentNode(attrListSyntax);
-
-                // TODO: Find a way without recreating the document twice
-                editor = await DocumentEditor.CreateAsync(newDoc, context.CancellationToken).ConfigureAwait(false);
+                await editContext.ReplaceSyntaxAsync(typeSyntax, nullableTypeSyntax).ConfigureAwait(false);
             }
 
-            // Remove attribute (preserve trivia)
-            var parent = attrListSyntax2.Parent;
-            var parentAnnotated = parent
-                .RemoveNode(attrListSyntax2, SyntaxRemoveOptions.KeepExteriorTrivia)
-                .WithAdditionalAnnotations(Formatter.Annotation);
+            return editContext.Document;
+        }
 
-            editor.ReplaceNode(parent, parentAnnotated);
-            return editor.GetChangedDocument();
+        [ItemNotNull]
+        private static async Task<ISymbol> SyntaxToSymbol([NotNull] EditContext editContext,
+            [NotNull] SyntaxNode targetSyntax)
+        {
+            var fieldSyntax = targetSyntax as FieldDeclarationSyntax;
+            if (fieldSyntax != null)
+            {
+                targetSyntax = fieldSyntax.Declaration.Variables.First();
+            }
+
+            SemanticModel model =
+                await editContext.Document.GetSemanticModelAsync(editContext.CancellationToken).ConfigureAwait(false);
+            return model.GetDeclaredSymbol(targetSyntax);
+        }
+
+        [ItemCanBeNull]
+        private static async Task<AttributeSyntax> GetAttributeSyntaxOrNullAsync([NotNull] ISymbol targetSymbol,
+            [NotNull] string attributeName, CancellationToken cancellationToken)
+        {
+            AttributeData attributeData =
+                targetSymbol.GetAttributes().FirstOrDefault(attr => attr.AttributeClass.Name == attributeName);
+
+            if (attributeData == null)
+            {
+                return null;
+            }
+
+            SyntaxReference syntaxReference = attributeData.ApplicationSyntaxReference;
+            SyntaxNode attributeSyntax = await syntaxReference.GetSyntaxAsync(cancellationToken).ConfigureAwait(false);
+            return (AttributeSyntax) attributeSyntax;
         }
 
         [NotNull]
-        private static string AddQuestionMark([NotNull] string type, bool appliesToItem)
+        private static string AddQuestionMarkToTypeName([NotNull] string typeName, bool appliesToItem)
         {
             if (appliesToItem)
             {
-                int closingAngleIndex = type.LastIndexOf('>');
+                int closingAngleIndex = typeName.LastIndexOf('>');
                 if (closingAngleIndex != -1)
                 {
-                    string leftPart = type.Substring(0, closingAngleIndex);
-                    string rightPart = type.Substring(closingAngleIndex);
+                    string leftPart = typeName.Substring(0, closingAngleIndex);
+                    string rightPart = typeName.Substring(closingAngleIndex);
 
                     return leftPart + "?" + rightPart;
                 }
 
-                return type;
+                // Should never get here.
+                return typeName;
             }
 
-            return type + "?";
+            return typeName + "?";
+        }
+
+        [ItemNotNull]
+        private static async Task RemoveAttributeFromListAsync([NotNull] AttributeSyntax attributeSyntax,
+            [NotNull] EditContext context)
+        {
+            var attributeListSyntax = (AttributeListSyntax) attributeSyntax.Parent;
+
+            SyntaxNode syntaxToRemove = attributeListSyntax.Attributes.Count == 1
+                ? (SyntaxNode) attributeListSyntax
+                : attributeSyntax;
+
+            await RemoveSyntaxAsync(syntaxToRemove, context).ConfigureAwait(false);
+        }
+
+        private static async Task RemoveSyntaxAsync([NotNull] SyntaxNode syntaxNode, [NotNull] EditContext context)
+        {
+            SyntaxNode noSpaceSyntaxNode = RemoveSurroundingWhitespaceIfOnEmptyLine(syntaxNode);
+            if (syntaxNode != noSpaceSyntaxNode)
+            {
+                noSpaceSyntaxNode =
+                    await context.ReplaceSyntaxAsync(syntaxNode, noSpaceSyntaxNode).ConfigureAwait(false);
+            }
+
+            SyntaxNode parent = noSpaceSyntaxNode.Parent;
+            SyntaxNode parentRemoved =
+                parent.RemoveNode(noSpaceSyntaxNode, SyntaxRemoveOptions.KeepExteriorTrivia)
+                    .WithAdditionalAnnotations(Formatter.Annotation);
+
+            await context.ReplaceSyntaxAsync(parent, parentRemoved).ConfigureAwait(false);
+        }
+
+        [NotNull]
+        private static T RemoveSurroundingWhitespaceIfOnEmptyLine<T>([NotNull] T syntax) where T : SyntaxNode
+        {
+            List<SyntaxTrivia> leadingTrivia = syntax.GetLeadingTrivia().ToList();
+            List<SyntaxTrivia> trailingTrivia = syntax.GetTrailingTrivia().ToList();
+
+            // TODO: This fails on:
+            /*
+                [OtherAttribute]
+                [ItemNotNull]
+                public List<string> Some;
+            */
+
+            if (!leadingTrivia.Any(IsEndOfLine) || !trailingTrivia.Any(IsEndOfLine))
+            {
+                // Something else is on this line; line cannot be removed.
+                return syntax;
+            }
+
+            bool hasChanges = false;
+            for (int index = leadingTrivia.Count - 1; !IsEndOfLine(leadingTrivia[index]); index--)
+            {
+                if (leadingTrivia[index].Kind() == SyntaxKind.WhitespaceTrivia)
+                {
+                    leadingTrivia.RemoveAt(index);
+                    hasChanges = true;
+                }
+                else
+                {
+                    // Non-whitespace found, so this line cannot be removed.
+                    return syntax;
+                }
+            }
+
+            for (int index = 0; !IsEndOfLine(trailingTrivia[index]); index++)
+            {
+                if (trailingTrivia[index].Kind() == SyntaxKind.WhitespaceTrivia)
+                {
+                    trailingTrivia.RemoveAt(index);
+                    index--;
+                    hasChanges = true;
+                }
+                else
+                {
+                    // Non-whitespace found, so this line cannot be removed.
+                    return syntax;
+                }
+            }
+
+            if (!hasChanges)
+            {
+                return syntax;
+            }
+
+            // Remove line break.
+            trailingTrivia.RemoveAt(0);
+
+            return syntax.WithLeadingTrivia(leadingTrivia).WithTrailingTrivia(trailingTrivia);
+        }
+
+        private static bool IsEndOfLine(SyntaxTrivia trivia)
+        {
+            return trivia.Kind() == SyntaxKind.EndOfLineTrivia;
+        }
+
+        private sealed class EditContext
+        {
+            [NotNull]
+            public Document Document { get; private set; }
+
+            [NotNull]
+            private DocumentEditor editor;
+
+            public CancellationToken CancellationToken { get; }
+
+            private EditContext([NotNull] Document document, [NotNull] DocumentEditor editor,
+                CancellationToken cancellationToken)
+            {
+                Document = document;
+                this.editor = editor;
+                CancellationToken = cancellationToken;
+            }
+
+            [ItemNotNull]
+            public static async Task<EditContext> CreateAsync([NotNull] Document document,
+                CancellationToken cancellationToken)
+            {
+                Guard.NotNull(document, nameof(document));
+
+                DocumentEditor editor =
+                    await DocumentEditor.CreateAsync(document, cancellationToken).ConfigureAwait(false);
+
+                return new EditContext(document, editor, cancellationToken);
+            }
+
+            [ItemNotNull]
+            public async Task<T> AnnotateSyntaxAsync<T>([NotNull] T syntax, [NotNull] SyntaxAnnotation annotation)
+                where T : SyntaxNode
+            {
+                Guard.NotNull(syntax, nameof(syntax));
+                Guard.NotNull(annotation, nameof(annotation));
+
+                return (T) await ReplaceSyntaxWithAnnotationAsync(syntax, syntax, annotation).ConfigureAwait(false);
+            }
+
+            [ItemNotNull]
+            public async Task<SyntaxNode> GetAnnotatedSyntaxAsync([NotNull] SyntaxAnnotation annotation)
+            {
+                Guard.NotNull(annotation, nameof(annotation));
+
+                SyntaxNode root = await Document.GetSyntaxRootAsync(CancellationToken).ConfigureAwait(false);
+                return root.GetAnnotatedNodes(annotation).First();
+            }
+
+            [ItemNotNull]
+            public async Task<SyntaxNode> ReplaceSyntaxAsync([NotNull] SyntaxNode syntax,
+                [NotNull] SyntaxNode replacementSyntax)
+            {
+                Guard.NotNull(syntax, nameof(syntax));
+                Guard.NotNull(replacementSyntax, nameof(replacementSyntax));
+
+                var trackAnnotation = new SyntaxAnnotation();
+                return
+                    await
+                        ReplaceSyntaxWithAnnotationAsync(syntax, replacementSyntax, trackAnnotation)
+                            .ConfigureAwait(false);
+            }
+
+            [ItemNotNull]
+            private async Task<SyntaxNode> ReplaceSyntaxWithAnnotationAsync([NotNull] SyntaxNode syntax,
+                [NotNull] SyntaxNode replacementSyntax, [NotNull] SyntaxAnnotation trackAnnotation)
+            {
+                replacementSyntax = replacementSyntax.WithAdditionalAnnotations(trackAnnotation);
+
+                editor.ReplaceNode(syntax, replacementSyntax);
+                Document = editor.GetChangedDocument();
+
+                SyntaxNode newSyntax = await GetAnnotatedSyntaxAsync(trackAnnotation).ConfigureAwait(false);
+
+                editor = await DocumentEditor.CreateAsync(Document, CancellationToken).ConfigureAwait(false);
+
+                return newSyntax;
+            }
+
+            [NotNull]
+            public EditContext ReplaceCancellationToken(CancellationToken cancellationToken)
+            {
+                return new EditContext(Document, editor, cancellationToken);
+            }
         }
     }
 }

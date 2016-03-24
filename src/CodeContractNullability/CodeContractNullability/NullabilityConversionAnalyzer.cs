@@ -101,6 +101,15 @@ namespace CodeContractNullability
 
             // TODO: Why do fixes appear twice in DogAgilityCompetitionManagement project?
 
+            // List of tracked bugs on nullable-reference-types:
+            // - Nullable reference types: ReferenceEquals(x, null) not considered a null check (https://github.com/dotnet/roslyn/issues/9930)
+            // - Nullable reference types: while ((x = Some()) != null) not considered a null check (https://github.com/dotnet/roslyn/issues/9931)
+            // - Nullable reference types: Unconstrained generic causes error CS0453 (https://github.com/dotnet/roslyn/issues/9932)
+            // - Nullable reference types: Internal assertion failures (https://github.com/dotnet/roslyn/issues/9933)
+            // - Proposal: Allow unconstrained generic type parameters to be nullable references (https://github.com/dotnet/roslyn/issues/9967)
+            // - Nullable reference types: string.IsNullOrEmpty / IsNullOrWhitespace not recognized (https://github.com/dotnet/roslyn/issues/9977)
+            // - Nullable reference types: Analysis of null checks on fields (https://github.com/dotnet/roslyn/issues/9978)
+            // - Nullable reference types: No unreachable warning for null check on not-nullable variable (https://github.com/dotnet/roslyn/issues/9980)
 
             context.RegisterCompilationStartAction(StartAnalyzeCompilation);
         }
