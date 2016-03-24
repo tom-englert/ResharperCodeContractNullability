@@ -251,7 +251,8 @@ namespace CodeContractNullability
             }
         }
 
-        private bool IsFirstParameterOfTypeObjectNamedSender([NotNull] ISymbol targetSymbol, [NotNull] ITypeSymbol symbolType)
+        private bool IsFirstParameterOfTypeObjectNamedSender([NotNull] ISymbol targetSymbol,
+            [NotNull] ITypeSymbol symbolType)
         {
             // Special case: First parameter that is 'object sender' should stay 'object' not 'object?'
             // Because its likely a event handler that we'll break otherwise. Example:
@@ -268,7 +269,7 @@ namespace CodeContractNullability
             {
                 if (parameter.Name == "sender" && symbolType.SpecialType == SpecialType.System_Object)
                 {
-                    var method = (IMethodSymbol)parameter.ContainingSymbol;
+                    var method = (IMethodSymbol) parameter.ContainingSymbol;
                     return method.Parameters.IndexOf(parameter) == 0;
                 }
             }

@@ -116,7 +116,7 @@ namespace CodeContractNullability
         }
 
         private void RegisterFixesForSyntaxNode([NotNull] SyntaxAnnotation syntaxAnnotation,
-            [NotNull] SyntaxAnnotation typeAnnotation, [NotNull] Diagnostic diagnostic, CodeFixContext context,
+            [NotNull] SyntaxAnnotation typeAnnotation, [NotNull] Diagnostic diagnostic, CodeFixContext fixContext,
             [NotNull] EditContext editContext, [NotNull] ConversionFixTarget fixTarget)
         {
             bool includeQuestionMark = fixTarget.FixAction == ConversionFixAction.ReplaceAttributeWithQuestionMark;
@@ -126,10 +126,10 @@ namespace CodeContractNullability
 
             CodeAction codeAction = CodeAction.Create(title,
                 token =>
-                    ChangeDocumentAsync(syntaxAnnotation, typeAnnotation, editContext,
-                        fixTarget, includeQuestionMark), title);
+                    ChangeDocumentAsync(syntaxAnnotation, typeAnnotation, editContext, fixTarget, includeQuestionMark),
+                title);
 
-            context.RegisterCodeFix(codeAction, diagnostic);
+            fixContext.RegisterCodeFix(codeAction, diagnostic);
         }
 
         [ItemCanBeNull]
@@ -289,7 +289,7 @@ namespace CodeContractNullability
 
         private static bool LeadingTriviaOnSameLineIsEmptyOrWhitespace([NotNull] SyntaxNode syntax)
         {
-            var leadingTrivia = syntax.GetLeadingTrivia();
+            SyntaxTriviaList leadingTrivia = syntax.GetLeadingTrivia();
 
             for (int index = leadingTrivia.Count - 1; index >= 0; index--)
             {
