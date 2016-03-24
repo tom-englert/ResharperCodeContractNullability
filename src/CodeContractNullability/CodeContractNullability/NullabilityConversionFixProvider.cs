@@ -239,7 +239,7 @@ namespace CodeContractNullability
 
         private static async Task RemoveSyntaxAsync([NotNull] SyntaxNode syntaxNode, [NotNull] EditContext context)
         {
-            SyntaxNode noSpaceSyntaxNode = RemoveSurroundingWhitespaceIfOnEmptyLine(syntaxNode);
+            SyntaxNode noSpaceSyntaxNode = RemoveTrailingEndOfLine(syntaxNode);
             if (syntaxNode != noSpaceSyntaxNode)
             {
                 noSpaceSyntaxNode =
@@ -255,46 +255,16 @@ namespace CodeContractNullability
         }
 
         [NotNull]
-        private static T RemoveSurroundingWhitespaceIfOnEmptyLine<T>([NotNull] T syntax) where T : SyntaxNode
+        private static T RemoveTrailingEndOfLine<T>([NotNull] T syntax) where T : SyntaxNode
         {
-            List<SyntaxTrivia> leadingTrivia = syntax.GetLeadingTrivia().ToList();
             List<SyntaxTrivia> trailingTrivia = syntax.GetTrailingTrivia().ToList();
 
-            // TODO: This fails on:
-            /*
-                [OtherAttribute]
-                [ItemNotNull]
-                public List<string> Some;
-            */
-
-            if (!leadingTrivia.Any(IsEndOfLine) || !trailingTrivia.Any(IsEndOfLine))
-            {
-                // Something else is on this line; line cannot be removed.
-                return syntax;
-            }
-
-            bool hasChanges = false;
-            for (int index = leadingTrivia.Count - 1; !IsEndOfLine(leadingTrivia[index]); index--)
-            {
-                if (leadingTrivia[index].Kind() == SyntaxKind.WhitespaceTrivia)
-                {
-                    leadingTrivia.RemoveAt(index);
-                    hasChanges = true;
-                }
-                else
-                {
-                    // Non-whitespace found, so this line cannot be removed.
-                    return syntax;
-                }
-            }
-
-            for (int index = 0; !IsEndOfLine(trailingTrivia[index]); index++)
+            for (int index = 0; index < trailingTrivia.Count && !IsEndOfLine(trailingTrivia[index]); index++)
             {
                 if (trailingTrivia[index].Kind() == SyntaxKind.WhitespaceTrivia)
                 {
                     trailingTrivia.RemoveAt(index);
                     index--;
-                    hasChanges = true;
                 }
                 else
                 {
@@ -303,15 +273,37 @@ namespace CodeContractNullability
                 }
             }
 
-            if (!hasChanges)
+            if (trailingTrivia.Count > 0 && IsEndOfLine(trailingTrivia[0]))
             {
-                return syntax;
+                // Remove line break.
+                trailingTrivia.RemoveAt(0);
+
+                if (LeadingTriviaOnSameLineIsEmptyOrWhitespace(syntax))
+                {
+                    return syntax.WithTrailingTrivia(trailingTrivia);
+                }
             }
 
-            // Remove line break.
-            trailingTrivia.RemoveAt(0);
+            return syntax;
+        }
 
-            return syntax.WithLeadingTrivia(leadingTrivia).WithTrailingTrivia(trailingTrivia);
+        private static bool LeadingTriviaOnSameLineIsEmptyOrWhitespace([NotNull] SyntaxNode syntax)
+        {
+            var leadingTrivia = syntax.GetLeadingTrivia();
+
+            for (int index = leadingTrivia.Count - 1; index >= 0; index--)
+            {
+                if (IsEndOfLine(leadingTrivia[index]))
+                {
+                    return true;
+                }
+                if (leadingTrivia[index].Kind() != SyntaxKind.WhitespaceTrivia)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool IsEndOfLine(SyntaxTrivia trivia)
