@@ -293,29 +293,29 @@ namespace CodeContractNullability
 
         private struct RuleKey : IEquatable<RuleKey>
         {
-            public SymbolAnalysisKind Kind { get; }
-            public ConversionFixAction FixAction { get; }
+            private readonly SymbolAnalysisKind kind;
+            private readonly ConversionFixAction fixAction;
 
             [NotNull]
-            public string BaseAttributeName { get; }
+            private readonly string baseAttributeName;
 
-            public bool AppliesToItem { get; }
+            private readonly bool appliesToItem;
 
             public RuleKey(SymbolAnalysisKind kind, ConversionFixAction fixAction, [NotNull] string baseAttributeName,
                 bool appliesToItem)
             {
                 Guard.NotNull(baseAttributeName, nameof(baseAttributeName));
 
-                Kind = kind;
-                FixAction = fixAction;
-                BaseAttributeName = baseAttributeName;
-                AppliesToItem = appliesToItem;
+                this.kind = kind;
+                this.fixAction = fixAction;
+                this.baseAttributeName = baseAttributeName;
+                this.appliesToItem = appliesToItem;
             }
 
             public bool Equals(RuleKey other)
             {
-                return other.Kind == Kind && other.FixAction == FixAction &&
-                    other.BaseAttributeName == BaseAttributeName && other.AppliesToItem == AppliesToItem;
+                return other.kind == kind && other.fixAction == fixAction &&
+                    other.baseAttributeName == baseAttributeName && other.appliesToItem == appliesToItem;
             }
 
             public override bool Equals([CanBeNull] object obj)
@@ -325,17 +325,17 @@ namespace CodeContractNullability
 
             public override int GetHashCode()
             {
-                return Kind.GetHashCode() ^ FixAction.GetHashCode() ^ BaseAttributeName.GetHashCode() ^
-                    AppliesToItem.GetHashCode();
+                return kind.GetHashCode() ^ fixAction.GetHashCode() ^ baseAttributeName.GetHashCode() ^
+                    appliesToItem.GetHashCode();
             }
 
             public override string ToString()
             {
                 var textBuilder = new StringBuilder();
-                textBuilder.Append(FixAction == ConversionFixAction.RemoveAttribute ? "Remove " : "Replace ");
-                textBuilder.Append(AppliesToItem ? "Item" + BaseAttributeName : BaseAttributeName);
+                textBuilder.Append(fixAction == ConversionFixAction.RemoveAttribute ? "Remove " : "Replace ");
+                textBuilder.Append(appliesToItem ? "Item" + baseAttributeName : baseAttributeName);
                 textBuilder.Append(" from ");
-                textBuilder.Append(Kind.ToString().ToCamelCase());
+                textBuilder.Append(kind.ToString().ToCamelCase());
                 return textBuilder.ToString();
             }
         }
@@ -357,6 +357,9 @@ namespace CodeContractNullability
         public string AttributeName { get; }
 
         public bool AppliesToItem { get; }
+
+        [NotNull]
+        public string EquivalenceKey => $"{(AppliesToItem ? "Base" + AttributeName : AttributeName)}/{FixAction}";
 
         public ConversionFixTarget(ConversionFixAction fixAction, [NotNull] string attributeName, bool appliesToItem)
         {

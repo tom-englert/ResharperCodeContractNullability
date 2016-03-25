@@ -33,6 +33,9 @@ namespace CodeContractNullability
         [NotNull]
         public override async Task RegisterCodeFixesAsync(CodeFixContext context)
         {
+            // TODO: Submit Roslyn bug - RemoveNode with SyntaxRemoveOptions.KeepExteriorTrivia throws away comments in:
+            // public Log4NetSystemLogger([CanBeNull] /* LOST */ Type type) { }
+
             foreach (Diagnostic diagnostic in context.Diagnostics)
             {
                 CancellationToken cancellationToken = context.CancellationToken;
@@ -127,7 +130,7 @@ namespace CodeContractNullability
             CodeAction codeAction = CodeAction.Create(title,
                 token =>
                     ChangeDocumentAsync(syntaxAnnotation, typeAnnotation, editContext, fixTarget, includeQuestionMark),
-                title);
+                fixTarget.EquivalenceKey);
 
             fixContext.RegisterCodeFix(codeAction, diagnostic);
         }
@@ -388,12 +391,6 @@ namespace CodeContractNullability
                 editor = await DocumentEditor.CreateAsync(Document, CancellationToken).ConfigureAwait(false);
 
                 return newSyntax;
-            }
-
-            [NotNull]
-            public EditContext ReplaceCancellationToken(CancellationToken cancellationToken)
-            {
-                return new EditContext(Document, editor, cancellationToken);
             }
         }
     }
