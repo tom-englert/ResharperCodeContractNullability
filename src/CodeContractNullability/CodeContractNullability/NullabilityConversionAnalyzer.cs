@@ -126,6 +126,11 @@ namespace CodeContractNullability
                 return;
             }
 
+            if (!IsNullableReferenceTypesSupportEnabled(context.Compilation))
+            {
+                return;
+            }
+
             var typeCache = new FrameworkTypeCache(context.Compilation);
 
             context.RegisterSymbolAction(c => AnalyzeField(c, typeCache), SymbolKind.Field);
@@ -133,6 +138,16 @@ namespace CodeContractNullability
             context.RegisterSymbolAction(c => AnalyzeMethod(c, typeCache), SymbolKind.Method);
             context.RegisterSyntaxNodeAction(c => AnalyzeParameter(SyntaxToSymbolContext(c), typeCache),
                 SyntaxKind.Parameter);
+        }
+
+        private bool IsNullableReferenceTypesSupportEnabled([NotNull] Compilation compilation)
+        {
+            var optionsOrNull = (CSharpParseOptions) compilation.SyntaxTrees.FirstOrDefault()?.Options;
+
+            // TODO: Better checks when new VS RCs become available.
+            bool isCSharp6 = optionsOrNull?.LanguageVersion == LanguageVersion.CSharp6;
+            var ft = optionsOrNull?.Features;
+            return true;
         }
 
         private void AnalyzeField(SymbolAnalysisContext context, [NotNull] FrameworkTypeCache typeCache)
