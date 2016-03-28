@@ -241,7 +241,7 @@ namespace CodeContractNullability
 
         private static async Task RemoveSyntaxAsync([NotNull] SyntaxNode syntaxNode, [NotNull] EditContext context)
         {
-            SyntaxNode noSpaceSyntaxNode = RemoveTrailingEndOfLine(syntaxNode);
+            SyntaxNode noSpaceSyntaxNode = RemoveSurroundingWhitespaceOnLine(syntaxNode);
             if (syntaxNode != noSpaceSyntaxNode)
             {
                 noSpaceSyntaxNode =
@@ -257,11 +257,27 @@ namespace CodeContractNullability
         }
 
         [NotNull]
-        private static T RemoveTrailingEndOfLine<T>([NotNull] T syntax) where T : SyntaxNode
+        private static T RemoveSurroundingWhitespaceOnLine<T>([NotNull] T syntax) where T : SyntaxNode
+        {
+            IList<SyntaxTrivia> trailingTrivia = TryRemoveTrailingWhitespaceIncludingEndOfLine(syntax);
+            if (trailingTrivia != null)
+            {
+                IList<SyntaxTrivia> leadingTrivia = TryRemoveLeadingWhitespaceOnSameLine(syntax);
+                if (leadingTrivia != null)
+                {
+                    return syntax.WithTrailingTrivia(trailingTrivia).WithLeadingTrivia(leadingTrivia);
+                }
+            }
+
+            return syntax;
+        }
+
+        [CanBeNull]
+        private static IList<SyntaxTrivia> TryRemoveTrailingWhitespaceIncludingEndOfLine([NotNull] SyntaxNode syntax)
         {
             List<SyntaxTrivia> trailingTrivia = syntax.GetTrailingTrivia().ToList();
 
-            for (int index = 0; index < trailingTrivia.Count && !IsEndOfLine(trailingTrivia[index]); index++)
+            for (int index = 0; index < trailingTrivia.Count && !IsExplicitEndOfLine(trailingTrivia[index]); index++)
             {
                 if (trailingTrivia[index].Kind() == SyntaxKind.WhitespaceTrivia)
                 {
@@ -270,45 +286,49 @@ namespace CodeContractNullability
                 }
                 else
                 {
-                    // Non-whitespace found, so this line cannot be removed.
-                    return syntax;
+                    // Non-whitespace found on same line, so this line cannot be removed.
+                    return null;
                 }
             }
 
-            if (trailingTrivia.Count > 0 && IsEndOfLine(trailingTrivia[0]))
+            if (trailingTrivia.Count == 0 || !IsExplicitEndOfLine(trailingTrivia[0]))
             {
-                // Remove line break.
-                trailingTrivia.RemoveAt(0);
-
-                if (LeadingTriviaOnSameLineIsEmptyOrWhitespace(syntax))
-                {
-                    return syntax.WithTrailingTrivia(trailingTrivia);
-                }
+                // No end-of-line found, so this line cannot be removed.
+                return null;
             }
 
-            return syntax;
+            trailingTrivia.RemoveAt(0);
+            return trailingTrivia;
         }
 
-        private static bool LeadingTriviaOnSameLineIsEmptyOrWhitespace([NotNull] SyntaxNode syntax)
+        [CanBeNull]
+        private static IList<SyntaxTrivia> TryRemoveLeadingWhitespaceOnSameLine([NotNull] SyntaxNode syntax)
         {
-            SyntaxTriviaList leadingTrivia = syntax.GetLeadingTrivia();
+            List<SyntaxTrivia> leadingTrivia = syntax.GetLeadingTrivia().ToList();
 
-            for (int index = leadingTrivia.Count - 1; index >= 0; index--)
+            for (int index = leadingTrivia.Count - 1; index >= 0 && !IsImplicitEndOfLine(leadingTrivia[index]); index--)
             {
-                if (IsEndOfLine(leadingTrivia[index]))
+                if (leadingTrivia[index].Kind() == SyntaxKind.WhitespaceTrivia)
                 {
-                    return true;
+                    leadingTrivia.RemoveAt(index);
                 }
-                if (leadingTrivia[index].Kind() != SyntaxKind.WhitespaceTrivia)
+                else
                 {
-                    return false;
+                    // Non-whitespace found on same line, so this line cannot be removed.
+                    return null;
                 }
             }
 
-            return true;
+            return leadingTrivia;
         }
 
-        private static bool IsEndOfLine(SyntaxTrivia trivia)
+        private static bool IsImplicitEndOfLine(SyntaxTrivia trivia)
+        {
+            return trivia.IsDirective || trivia.Kind() == SyntaxKind.EndOfLineTrivia ||
+                trivia.Kind() == SyntaxKind.SingleLineDocumentationCommentTrivia;
+        }
+
+        private static bool IsExplicitEndOfLine(SyntaxTrivia trivia)
         {
             return trivia.Kind() == SyntaxKind.EndOfLineTrivia;
         }
