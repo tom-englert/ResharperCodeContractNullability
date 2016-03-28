@@ -33,9 +33,6 @@ namespace CodeContractNullability
         [NotNull]
         public override async Task RegisterCodeFixesAsync(CodeFixContext context)
         {
-            // TODO: Submit Roslyn bug - RemoveNode with SyntaxRemoveOptions.KeepExteriorTrivia throws away comments in:
-            // public Log4NetSystemLogger([CanBeNull] /* LOST */ Type type) { }
-
             foreach (Diagnostic diagnostic in context.Diagnostics)
             {
                 CancellationToken cancellationToken = context.CancellationToken;
@@ -50,11 +47,11 @@ namespace CodeContractNullability
                 EditContext editContext =
                     await EditContext.CreateAsync(context.Document, cancellationToken).ConfigureAwait(false);
 
-                var syntaxAnnotation = new SyntaxAnnotation("targetSyntax");
+                var syntaxAnnotation = new SyntaxAnnotation();
                 targetSyntax =
                     await editContext.AnnotateSyntaxAsync(targetSyntax, syntaxAnnotation).ConfigureAwait(false);
 
-                var typeAnnotation = new SyntaxAnnotation("typeSyntax");
+                var typeAnnotation = new SyntaxAnnotation();
 
                 var methodSyntax = targetSyntax as MethodDeclarationSyntax;
                 if (methodSyntax != null)
@@ -166,7 +163,9 @@ namespace CodeContractNullability
                 string nullableTypeName = AddQuestionMarkToTypeName(typeSyntax.ToString(), fixTarget.AppliesToItem);
 
                 TypeSyntax nullableTypeSyntax =
-                    SyntaxFactory.ParseTypeName(nullableTypeName).WithAdditionalAnnotations(Formatter.Annotation);
+                    SyntaxFactory.ParseTypeName(nullableTypeName)
+                        .WithTriviaFrom(typeSyntax)
+                        .WithAdditionalAnnotations(Formatter.Annotation);
 
                 await editContext.ReplaceSyntaxAsync(typeSyntax, nullableTypeSyntax).ConfigureAwait(false);
             }
