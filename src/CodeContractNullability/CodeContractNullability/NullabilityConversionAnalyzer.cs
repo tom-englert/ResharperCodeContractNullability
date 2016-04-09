@@ -144,10 +144,32 @@ namespace CodeContractNullability
         {
             var optionsOrNull = (CSharpParseOptions) compilation.SyntaxTrees.FirstOrDefault()?.Options;
 
-            // TODO: Better checks when new VS RCs become available.
-            bool isCSharp6 = optionsOrNull?.LanguageVersion == LanguageVersion.CSharp6;
-            var ft = optionsOrNull?.Features;
-            return true;
+            if (optionsOrNull != null)
+            {
+                bool languageVersionSupported = optionsOrNull.LanguageVersion >= LanguageVersion.CSharp6;
+                bool featureSupported = SupportsFeature(optionsOrNull, "staticNullChecking");
+                if (languageVersionSupported && featureSupported)
+                {
+                    // To enable this analyzer, add the next line in first PropertyGroup (Global) of .csproj:
+                    //
+                    //  <Features>staticNullChecking</Features>
+                    //
+                    // Or, update your project.json like:
+                    //
+                    //      "compilationOptions": {
+                    //        "emitEntryPoint": true,
+                    //        "features": [ "staticNullChecking" ]
+                    //      },
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool SupportsFeature([NotNull] CSharpParseOptions options, [NotNull] string featureName)
+        {
+            return options.Features.ContainsKey(featureName) && options.Features[featureName] == "true";
         }
 
         private void AnalyzeField(SymbolAnalysisContext context, [NotNull] FrameworkTypeCache typeCache)
