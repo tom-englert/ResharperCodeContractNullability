@@ -151,6 +151,7 @@
     <Compile Include="Specs\AttributeDiscoverySpecs.cs" />
     <Compile Include="Specs\Bugfixes.cs" />
     <Compile Include="Specs\ExternalAnnotationMemberNamingSpecs.cs" />
+    <Compile Include="Specs\ScanningForExternalAnnotationsSpecs.cs" />
     <Compile Include="Specs\FieldCollectionSpecs.cs" />
     <Compile Include="Specs\FieldSpecs.cs" />
     <Compile Include="Specs\LambdaSpecs.cs" />

@@ -2,6 +2,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics.CodeAnalysis;
 using CodeContractNullability.ExternalAnnotations;
+using CodeContractNullability.ExternalAnnotations.Storage.FileSystem;
 using CodeContractNullability.NullabilityAttributes;
 using CodeContractNullability.SymbolAnalysis;
 using CodeContractNullability.Utilities;
@@ -72,13 +73,20 @@ perform the following additional steps after applying this code fix.
             new ExtensionPoint<INullabilityAttributeProvider>(() => new CachingNullabilityAttributeProvider());
 
         [NotNull]
-        public ExtensionPoint<IExternalAnnotationsResolver> ExternalAnnotationsResolver { get; } =
-            new ExtensionPoint<IExternalAnnotationsResolver>(() => new CachingExternalAnnotationsResolver());
+        public ExtensionPoint<IFileSystem> FileSystem { get; } =
+            new ExtensionPoint<IFileSystem>(() => new WindowsFileSystem());
+
+        [NotNull]
+        public ExtensionPoint<IExternalAnnotationsResolver> ExternalAnnotationsResolver { get; }
 
         [SuppressMessage("Microsoft.Usage", "CA2214:DoNotCallOverridableMethodsInConstructors")]
         protected BaseAnalyzer(bool appliesToItem)
         {
             this.appliesToItem = appliesToItem;
+
+            ExternalAnnotationsResolver =
+                new ExtensionPoint<IExternalAnnotationsResolver>(
+                    () => new CachingExternalAnnotationsResolver(FileSystem.GetCached(), new GlobalAnnotationCacheProvider()));
 
             // ReSharper disable DoNotCallOverridableMethodsInConstructor
             ruleForField = CreateRuleFor("Field");
@@ -143,7 +151,7 @@ perform the following additional steps after applying this code fix.
         {
             // Requires VS 2017 or higher.
             SyntaxKind value;
-            return Enum.TryParse("LocalFunctionStatement", out value) ? value : (SyntaxKind?) null;
+            return Enum.TryParse("LocalFunctionStatement", out value) ? value : (SyntaxKind?)null;
         }
 
         private void AnalyzeField(SymbolAnalysisContext context, [NotNull] SymbolAnalyzerFactory factory,
@@ -181,7 +189,7 @@ perform the following additional steps after applying this code fix.
         private void AnalyzeLocalFunction(SymbolAnalysisContext context, [NotNull] SymbolAnalyzerFactory factory,
             [NotNull] ImmutableDictionary<string, string> properties)
         {
-            var localFunction = (IMethodSymbol) context.Symbol;
+            var localFunction = (IMethodSymbol)context.Symbol;
 
             foreach (IParameterSymbol parameter in localFunction.Parameters)
             {

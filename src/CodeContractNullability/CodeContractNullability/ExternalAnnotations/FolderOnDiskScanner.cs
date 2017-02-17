@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using CodeContractNullability.ExternalAnnotations.Storage.FileSystem;
 using CodeContractNullability.Utilities;
 using JetBrains.Annotations;
 
@@ -10,6 +11,9 @@ namespace CodeContractNullability.ExternalAnnotations
     public sealed class FolderOnDiskScanner
     {
         private const string ResharperFolderNamePrefix = "ReSharperPlatformVs";
+
+        [NotNull]
+        private readonly IDirectory directory;
 
         [NotNull]
         private readonly string programFilesX86Folder =
@@ -24,6 +28,13 @@ namespace CodeContractNullability.ExternalAnnotations
 
         [NotNull]
         private static readonly Category[] Categories = { Category.ExternalAnnotations, Category.Extensions };
+
+        public FolderOnDiskScanner([NotNull] IFileSystem fileSystem)
+        {
+            Guard.NotNull(fileSystem, nameof(fileSystem));
+
+            directory = fileSystem.Directory;
+        }
 
         [NotNull]
         [ItemNotNull]
@@ -79,23 +90,23 @@ namespace CodeContractNullability.ExternalAnnotations
 
             string installationsFolder = Path.Combine(startFolder, "JetBrains", "Installations");
 
-            if (!Directory.Exists(installationsFolder))
+            if (!directory.Exists(installationsFolder))
             {
                 yield break;
             }
 
             foreach (
-                string platformPath in Directory.GetDirectories(installationsFolder, ResharperFolderNamePrefix + "*"))
+                string platformPath in directory.GetDirectories(installationsFolder, ResharperFolderNamePrefix + "*"))
             {
                 string platformFolder = Path.GetFileName(platformPath);
-                if (platformFolder?.Length >= ResharperFolderNamePrefix.Length + 2)
+                if (platformFolder.Length >= ResharperFolderNamePrefix.Length + 2)
                 {
                     int vsVersion;
                     if (int.TryParse(platformFolder.Substring(ResharperFolderNamePrefix.Length, 2), out vsVersion) &&
                         vsVersion >= 14)
                     {
                         string path = Path.Combine(platformPath, subFolder);
-                        if (Directory.Exists(path))
+                        if (directory.Exists(path))
                         {
                             yield return new ExternalAnnotationsLocation(scope, category, vsVersion, path);
                         }
